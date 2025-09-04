@@ -1,0 +1,143 @@
+# DevOps Agent Configuration
+
+# System Settings
+system:
+  name: "DevOps Agent"
+  version: "0.1.0"
+  environment: ${API_ENV:development}
+
+# API Server Configuration
+server:
+  host: ${API_HOST:0.0.0.0}
+  port: ${API_PORT:8000}
+  workers: 4
+  reload: true  # Only in development
+
+# Database Configuration
+database:
+  url: ${DATABASE_URL:sqlite:///./devops_agent.db}
+  pool_size: 10
+  pool_pre_ping: true
+  echo: false
+
+# LangGraph Configuration
+langgraph:
+  max_steps: 20
+  memory_type: "sqlite"
+  checkpoint_ttl_seconds: 3600
+  
+# Agent Configuration
+agents:
+  planner:
+    timeout_seconds: 30
+    max_retries: 2
+  log:
+    timeout_seconds: 20
+    max_retries: 3
+  alarm:
+    timeout_seconds: 15
+    max_retries: 3
+  kpi:
+    timeout_seconds: 20
+    max_retries: 3
+  summary:
+    timeout_seconds: 40
+    max_retries: 2
+
+# LLM Configuration
+llm:
+  provider: ${LLM_PROVIDER:openai}  # openai or anthropic
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    model: ${OPENAI_MODEL:gpt-4o-mini}
+    temperature: 0.1
+    max_tokens: 4096
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    model: ${ANTHROPIC_MODEL:claude-3-5-sonnet-20241022}
+    temperature: 0.1
+    max_tokens: 4096
+
+# MCP (Model Context Protocol) Configuration
+mcp:
+  servers:
+    logs:
+      server_id: logs
+      transport: http
+      endpoint: ${MCP_LOGS_SERVER_URL:http://localhost:8081}
+      token_env: MCP_LOGS_TOKEN
+      timeout_seconds: 30
+    metrics:
+      server_id: metrics
+      transport: http
+      endpoint: ${MCP_METRICS_SERVER_URL:http://localhost:8082}
+      token_env: MCP_METRICS_TOKEN
+      timeout_seconds: 30
+    alerts:
+      server_id: alerts
+      transport: http
+      endpoint: ${MCP_ALERTS_SERVER_URL:http://localhost:8083}
+      token_env: MCP_ALERTS_TOKEN
+      timeout_seconds: 30
+  
+  # Tool mapping to agents
+  mapping:
+    log:
+      server: logs
+      tools: [log.search, log.tail, log.summary]
+    kpi:
+      server: metrics
+      tools: [metric.query, metric.range_query, metric.baseline]
+    alarm:
+      server: alerts
+      tools: [alert.list, alert.get, alert.summary]
+
+# Observability
+observability:
+  tracing:
+    enabled: true
+    service_name: "devops-agent"
+    endpoint: ${TRACING_ENDPOINT:http://localhost:4317}
+  
+  metrics:
+    enabled: true
+    port: 9090
+  
+  logging:
+    level: ${LOG_LEVEL:INFO}
+    format: json
+    file: logs/devops-agent.log
+
+# Rate Limiting
+rate_limiting:
+  enabled: true
+  requests_per_minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:60}
+  burst_size: 10
+
+# Security
+security:
+  cors:
+    enabled: true
+    origins: ${CORS_ORIGINS:["http://localhost:3000"]}
+    allow_credentials: true
+  
+  auth:
+    enabled: ${AUTH_ENABLED:false}
+    secret_key: ${SECRET_KEY:change-me-in-production}
+    algorithm: "HS256"
+    token_expire_minutes: ${TOKEN_EXPIRE_MINUTES:60}
+
+# Execution Limits
+limits:
+  max_concurrent_agents: ${MAX_CONCURRENT_AGENTS:3}
+  max_evidence_per_request: 100
+  max_tasks_per_plan: 20
+  default_timeout_seconds: ${DEFAULT_TIMEOUT_SECONDS:30}
+  max_retries: ${MAX_RETRIES:3}
+  max_request_size_mb: 10
+
+# Cache Configuration
+cache:
+  enabled: true
+  ttl_seconds: 300
+  max_size_mb: 100

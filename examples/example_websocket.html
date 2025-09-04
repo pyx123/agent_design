@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DevOps Agent WebSocket Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input, button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+        .message {
+            padding: 8px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            background: white;
+            border-left: 4px solid #007bff;
+        }
+        .message.error {
+            border-left-color: #dc3545;
+            background: #fee;
+        }
+        .message.success {
+            border-left-color: #28a745;
+        }
+        .message.info {
+            border-left-color: #17a2b8;
+        }
+        .message-type {
+            font-weight: bold;
+            color: #666;
+        }
+        .message-data {
+            margin-top: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #333;
+            white-space: pre-wrap;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #007bff;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <h1>DevOps Agent WebSocket Example</h1>
+    
+    <div class="container">
+        <h2>Connection</h2>
+        <div id="status" class="status disconnected">Disconnected</div>
+        <div class="controls">
+            <input type="text" id="wsUrl" value="ws://localhost:8000/ws" placeholder="WebSocket URL" style="flex: 1;">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>Subscription</h2>
+        <div class="controls">
+            <input type="text" id="requestId" placeholder="Request ID (e.g., req_abc123)" style="flex: 1;">
+            <button id="subscribeBtn" onclick="subscribe()" disabled>Subscribe</button>
+            <button id="unsubscribeBtn" onclick="unsubscribe()" disabled>Unsubscribe</button>
+        </div>
+        <div id="progressContainer" style="display: none;">
+            <div>Progress: <span id="progressText">0%</span></div>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill" style="width: 0%;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h2>Messages</h2>
+        <button onclick="clearMessages()">Clear</button>
+        <div id="messages" class="messages"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let currentRequestId = null;
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const subscribeBtn = document.getElementById('subscribeBtn');
+            const unsubscribeBtn = document.getElementById('unsubscribeBtn');
+            
+            if (connected) {
+                status.textContent = 'Connected';
+                status.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                subscribeBtn.disabled = false;
+            } else {
+                status.textContent = 'Disconnected';
+                status.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                subscribeBtn.disabled = true;
+                unsubscribeBtn.disabled = true;
+            }
+        }
+        
+        function addMessage(type, data, messageClass = 'info') {
+            const messages = document.getElementById('messages');
+            const message = document.createElement('div');
+            message.className = `message ${messageClass}`;
+            
+            const typeElement = document.createElement('div');
+            typeElement.className = 'message-type';
+            typeElement.textContent = type;
+            
+            const dataElement = document.createElement('div');
+            dataElement.className = 'message-data';
+            dataElement.textContent = JSON.stringify(data, null, 2);
+            
+            message.appendChild(typeElement);
+            message.appendChild(dataElement);
+            messages.appendChild(message);
+            
+            // Auto-scroll to bottom
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function updateProgress(progress) {
+            const container = document.getElementById('progressContainer');
+            const text = document.getElementById('progressText');
+            const fill = document.getElementById('progressFill');
+            
+            container.style.display = 'block';
+            text.textContent = `${Math.round(progress * 100)}%`;
+            fill.style.width = `${progress * 100}%`;
+        }
+        
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            
+            try {
+                ws = new WebSocket(url);
+                
+                ws.onopen = () => {
+                    updateStatus(true);
+                    addMessage('Connected', { url: url }, 'success');
+                };
+                
+                ws.onclose = () => {
+                    updateStatus(false);
+                    addMessage('Disconnected', { reason: 'Connection closed' }, 'error');
+                    ws = null;
+                };
+                
+                ws.onerror = (error) => {
+                    addMessage('Error', { error: 'WebSocket error occurred' }, 'error');
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        handleMessage(message);
+                    } catch (e) {
+                        addMessage('Parse Error', { raw: event.data }, 'error');
+                    }
+                };
+            } catch (e) {
+                addMessage('Connection Error', { error: e.message }, 'error');
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+        
+        function subscribe() {
+            const requestId = document.getElementById('requestId').value;
+            if (!requestId) {
+                alert('Please enter a request ID');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                currentRequestId = requestId;
+                ws.send(JSON.stringify({
+                    type: 'subscribe',
+                    data: { request_id: requestId }
+                }));
+                document.getElementById('unsubscribeBtn').disabled = false;
+            }
+        }
+        
+        function unsubscribe() {
+            if (ws && ws.readyState === WebSocket.OPEN && currentRequestId) {
+                ws.send(JSON.stringify({
+                    type: 'unsubscribe',
+                    data: { request_id: currentRequestId }
+                }));
+                currentRequestId = null;
+                document.getElementById('unsubscribeBtn').disabled = true;
+                document.getElementById('progressContainer').style.display = 'none';
+            }
+        }
+        
+        function handleMessage(message) {
+            const { type, data } = message;
+            
+            switch (type) {
+                case 'subscribed':
+                    addMessage('Subscribed', data, 'success');
+                    break;
+                    
+                case 'unsubscribed':
+                    addMessage('Unsubscribed', data, 'success');
+                    break;
+                    
+                case 'status_update':
+                    addMessage('Status Update', data, 'info');
+                    if (data.progress !== undefined) {
+                        updateProgress(data.progress);
+                    }
+                    break;
+                    
+                case 'evidence_collected':
+                    addMessage('Evidence Collected', data, 'info');
+                    break;
+                    
+                case 'task_completed':
+                    addMessage('Task Completed', data, 'success');
+                    break;
+                    
+                case 'analysis_complete':
+                    addMessage('Analysis Complete', data, 'success');
+                    updateProgress(1.0);
+                    break;
+                    
+                case 'error':
+                    addMessage('Error', data, 'error');
+                    break;
+                    
+                case 'pong':
+                    // Ignore pong messages
+                    break;
+                    
+                default:
+                    addMessage(type, data, 'info');
+            }
+        }
+        
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+        }
+        
+        // Send periodic ping to keep connection alive
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+    </script>
+</body>
+</html>

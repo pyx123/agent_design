@@ -1,0 +1,74 @@
+{
+  "examples": [
+    {
+      "title": "High latency in payment service",
+      "description": "Users are experiencing slow payment processing. The p99 latency has increased from 200ms to 2s in the last hour.",
+      "service": "payment-service",
+      "environment": "prod",
+      "severity": "high",
+      "time_range": {
+        "from": "2025-01-15T10:00:00Z",
+        "to": "2025-01-15T11:00:00Z"
+      },
+      "artifacts_hints": {
+        "affected_endpoints": ["/api/v1/payments/process"],
+        "error_codes": ["TIMEOUT", "CONNECTION_REFUSED"],
+        "related_services": ["payment-gateway", "fraud-detection"]
+      }
+    },
+    {
+      "title": "Database connection pool exhaustion",
+      "description": "Application logs showing 'connection pool exhausted' errors. Multiple services affected.",
+      "service": "user-service",
+      "environment": "prod",
+      "severity": "critical",
+      "artifacts_hints": {
+        "error_pattern": "pool.ConnectionPool: connection pool exhausted",
+        "affected_databases": ["users-db-primary"],
+        "peak_time": "2025-01-15T09:30:00Z"
+      }
+    },
+    {
+      "title": "Memory leak in recommendation engine",
+      "description": "Gradual memory increase over 24 hours, leading to OOM kills",
+      "service": "recommendation-engine",
+      "environment": "staging",
+      "severity": "medium",
+      "time_range": {
+        "from": "2025-01-14T00:00:00Z",
+        "to": "2025-01-15T00:00:00Z"
+      },
+      "artifacts_hints": {
+        "memory_pattern": "linear_increase",
+        "restart_frequency": "every_4_hours",
+        "heap_size": "8GB"
+      }
+    },
+    {
+      "title": "Spike in 5xx errors after deployment",
+      "description": "500% increase in HTTP 5xx errors following deployment of version 2.3.0",
+      "service": "api-gateway",
+      "environment": "prod",
+      "severity": "critical",
+      "artifacts_hints": {
+        "deployment_time": "2025-01-15T08:00:00Z",
+        "version": "2.3.0",
+        "previous_version": "2.2.8",
+        "error_rate": "15%"
+      }
+    },
+    {
+      "title": "Kafka consumer lag increasing",
+      "description": "Order processing consumer group showing increasing lag, currently at 1M messages",
+      "service": "order-processor",
+      "environment": "prod",
+      "severity": "high",
+      "artifacts_hints": {
+        "consumer_group": "order-processing-group",
+        "topic": "orders-events",
+        "lag_trend": "exponential",
+        "processing_rate": "1000 msg/s"
+      }
+    }
+  ]
+}
