@@ -164,7 +164,7 @@ Output only valid JSON matching the specified schema.
         return update_state_timestamp(state)
 
 
-async def summary_agent_node(state: GraphState) -> GraphState:
+def summary_agent_node(state: GraphState) -> GraphState:
     """Summary agent node function for LangGraph."""
     agent = SummaryAgent()
-    return await agent(state)
+    return agent(state)

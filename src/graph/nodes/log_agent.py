@@ -152,8 +152,8 @@ Use the mcp_tool_invoker to query logs and extract relevant evidence.
                 break
 
 
-async def log_agent_node(state: GraphState) -> GraphState:
+def log_agent_node(state: GraphState) -> GraphState:
     """Log agent node function for LangGraph."""
     agent = LogAgent()
-    await agent.initialize()  # Initialize tools
-    return await agent(state)
+    # Initialize is handled in __call__ if needed
+    return agent(state)

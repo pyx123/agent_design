@@ -50,8 +50,25 @@ class BaseAgent(ABC):
         """Process LLM response and update state."""
         pass
     
-    async def __call__(self, state: GraphState) -> GraphState:
-        """Execute the agent node."""
+    def __call__(self, state: GraphState) -> GraphState:
+        """Execute the agent node (sync wrapper)."""
+        import asyncio
+        
+        # Get or create event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're already in an async context, use run_until_complete
+            return loop.run_until_complete(self._execute_async(state))
+        except RuntimeError:
+            # No running loop, create one
+            return asyncio.run(self._execute_async(state))
+    
+    async def _execute_async(self, state: GraphState) -> GraphState:
+        """Execute the agent node asynchronously."""
+        # Initialize tools if not already done
+        if not self.tools:
+            await self.initialize()
+        
         # Add to execution path
         state = add_execution_path(state, self.name)
         

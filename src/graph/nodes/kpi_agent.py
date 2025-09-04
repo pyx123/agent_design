@@ -157,8 +157,8 @@ Use the mcp_tool_invoker to query metrics and identify:
                 break
 
 
-async def kpi_agent_node(state: GraphState) -> GraphState:
+def kpi_agent_node(state: GraphState) -> GraphState:
     """KPI agent node function for LangGraph."""
     agent = KPIAgent()
-    await agent.initialize()  # Initialize tools
-    return await agent(state)
+    # Initialize is handled in __call__ if needed
+    return agent(state)

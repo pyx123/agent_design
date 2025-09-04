@@ -154,8 +154,8 @@ Group related alerts and identify patterns.
                 break
 
 
-async def alarm_agent_node(state: GraphState) -> GraphState:
+def alarm_agent_node(state: GraphState) -> GraphState:
     """Alarm agent node function for LangGraph."""
     agent = AlarmAgent()
-    await agent.initialize()  # Initialize tools
-    return await agent(state)
+    # Initialize is handled in __call__ if needed
+    return agent(state)
