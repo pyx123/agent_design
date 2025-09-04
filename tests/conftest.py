@@ -2,24 +2,42 @@
 
 import asyncio
 import os
+import sys
 import pytest
 import pytest_asyncio
 from datetime import datetime
 from typing import AsyncGenerator
 
+# Import test config first
+from tests.test_config import *
+
+# Add src to path if needed
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from src.app import app
-from src.config import settings
-from src.services.database import DatabaseManager
-from src.graph.state import TroubleshootingRequest, TimeRange
+# Lazy imports to avoid circular dependencies
+app = None
+settings = None
+DatabaseManager = None
+TroubleshootingRequest = None
+TimeRange = None
 
-
-# Set test environment
-os.environ["API_ENV"] = "test"
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+def _lazy_imports():
+    global app, settings, DatabaseManager, TroubleshootingRequest, TimeRange
+    if app is None:
+        from src.app import app as _app
+        from src.config import settings as _settings
+        from src.services.database import DatabaseManager as _DatabaseManager
+        from src.graph.state import TroubleshootingRequest as _TroubleshootingRequest, TimeRange as _TimeRange
+        
+        app = _app
+        settings = _settings
+        DatabaseManager = _DatabaseManager
+        TroubleshootingRequest = _TroubleshootingRequest
+        TimeRange = _TimeRange
 
 
 @pytest.fixture(scope="session")
@@ -33,6 +51,8 @@ def event_loop():
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Create a test database session."""
+    _lazy_imports()
+    
     # Create test database
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
@@ -57,19 +77,22 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 @pytest.fixture
 def test_client() -> TestClient:
     """Create a test client for the FastAPI app."""
+    _lazy_imports()
     return TestClient(app)
 
 
 @pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """Create an async test client."""
+    _lazy_imports()
     async with AsyncClient(app=app, base_url="http://test") as client:
         yield client
 
 
 @pytest.fixture
-def sample_request() -> TroubleshootingRequest:
+def sample_request():
     """Create a sample troubleshooting request."""
+    _lazy_imports()
     return TroubleshootingRequest(
         title="High latency in payment service",
         description="Users reporting slow payment processing",

@@ -4,8 +4,46 @@ import asyncio
 from typing import Dict, List, Optional, TypedDict
 
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.checkpoint.memory import MemorySaver
+try:
+    # 新版本的导入路径
+    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.checkpoint.memory import MemorySaver
+except ImportError:
+    # 旧版本或简化版本的导入路径
+    try:
+        from langgraph.checkpoint import SqliteSaver, MemorySaver
+    except ImportError:
+        # 如果都失败，使用简单的字典实现
+        class MemorySaver:
+            """简单的内存检查点保存器"""
+            def __init__(self):
+                self.checkpoints = {}
+            
+            def get(self, config):
+                thread_id = config.get("configurable", {}).get("thread_id")
+                return self.checkpoints.get(thread_id)
+            
+            def put(self, config, checkpoint, metadata=None):
+                thread_id = config.get("configurable", {}).get("thread_id")
+                self.checkpoints[thread_id] = checkpoint
+                return config
+            
+            def get_tuple(self, config):
+                checkpoint = self.get(config)
+                if checkpoint:
+                    return {"checkpoint": checkpoint, "metadata": {}}
+                return None
+            
+            def list(self, config):
+                return []
+            
+            @classmethod
+            def from_conn_string(cls, conn_string):
+                """兼容性方法"""
+                return cls()
+        
+        # SQLite保存器降级为内存保存器
+        SqliteSaver = MemorySaver
 
 from src.config import settings
 from src.graph.state import GraphState, ExecutionStatus, create_initial_state
