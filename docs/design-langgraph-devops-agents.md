@@ -274,6 +274,7 @@ def build_graph():
 .
 ├─ docs/
 │  ├─ design-langgraph-devops-agents.md
+│  ├─ prompts/             # 各 Agent 的提示词模板（本仓已创建）
 │  └─ schemas/
 ├─ src/
 │  ├─ app.py                # API/CLI 入口
@@ -285,7 +286,9 @@ def build_graph():
 │  ├─ services/             # 缓存、重试/节流（v2: 安全/RBAC/审计/成本）
 │  └─ observability/        # OTel 集成
 └─ config/
-   └─ default.yaml
+   ├─ default.yaml
+   └─ sql/
+      └─ ddl.sql            # SQLite DDL（见下文）
 ```
 
 #### 21. 示例请求与输出（简）
@@ -295,4 +298,252 @@ def build_graph():
 - 总结：疑似配置回滚缺失导致连接池参数过小，建议扩大连接池并回滚到稳定版本；提供验证步骤与回滚指令草案。
 
 —— 本文档可直接指导开发落地，配合 `src/graph/builder.py` 实现与工具封装逐步交付。
+
+#### 22. SQLite DDL（v0）
+```sql
+-- 基础请求与状态
+CREATE TABLE IF NOT EXISTS troubleshooting_requests (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT,
+  title TEXT,
+  description TEXT,
+  service TEXT,
+  environment TEXT,
+  severity TEXT,
+  time_from TEXT,
+  time_to TEXT,
+  status TEXT DEFAULT 'running',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS investigation_plans (
+  plan_id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  created_by TEXT,
+  goals_json TEXT,
+  plan_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS investigation_tasks (
+  task_id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  plan_id TEXT,
+  type TEXT,
+  inputs_json TEXT,
+  hypotheses_json TEXT,
+  priority INTEGER,
+  timeout_s INTEGER,
+  status TEXT DEFAULT 'pending',
+  result_summary TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT,
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id),
+  FOREIGN KEY(plan_id) REFERENCES investigation_plans(plan_id)
+);
+
+CREATE TABLE IF NOT EXISTS evidences (
+  evidence_id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  task_id TEXT,
+  source TEXT,
+  summary TEXT,
+  raw_ref_json TEXT,
+  time_from TEXT,
+  time_to TEXT,
+  quality_score REAL,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id),
+  FOREIGN KEY(task_id) REFERENCES investigation_tasks(task_id)
+);
+
+CREATE TABLE IF NOT EXISTS findings (
+  finding_id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  hypothesis_ref TEXT,
+  confidence REAL,
+  impact_scope_json TEXT,
+  supporting_evidence_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS root_causes (
+  id TEXT PRIMARY KEY,
+  request_id TEXT UNIQUE NOT NULL,
+  hypothesis TEXT,
+  confidence REAL,
+  affected_components_json TEXT,
+  time_correlation_json TEXT,
+  change_correlation_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS remediations (
+  id TEXT PRIMARY KEY,
+  request_id TEXT UNIQUE NOT NULL,
+  actions_json TEXT,
+  required_approvals_json TEXT,
+  validation_steps_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_errors (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  agent TEXT,
+  error_type TEXT,
+  message TEXT,
+  retriable INTEGER,
+  attempt INTEGER,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  role TEXT,
+  content TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id)
+);
+
+-- LangGraph 检查点（可选）
+CREATE TABLE IF NOT EXISTS graph_checkpoints (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  node TEXT,
+  state_json TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(request_id) REFERENCES troubleshooting_requests(id)
+);
+```
+
+#### 23. MCP 配置样例（v0）
+```yaml
+# config/default.yaml（片段）
+mcp:
+  servers:
+    logs:
+      server_id: logs
+      transport: http
+      endpoint: https://mcp-logs.example.com
+      token_env: MCP_LOGS_TOKEN
+    metrics:
+      server_id: metrics
+      transport: http
+      endpoint: https://mcp-metrics.example.com
+      token_env: MCP_METRICS_TOKEN
+    alerts:
+      server_id: alerts
+      transport: http
+      endpoint: https://mcp-alerts.example.com
+      token_env: MCP_ALERTS_TOKEN
+  mapping:
+    log:
+      server: logs
+      tools: [log.search, log.summary]
+    kpi:
+      server: metrics
+      tools: [metric.query, metric.range_query]
+    alarm:
+      server: alerts
+      tools: [alert.list, alert.summary]
+```
+
+#### 24. API 契约（v0）
+```http
+POST /troubleshoot
+Content-Type: application/json
+
+{
+  "title": "p99 latency high",
+  "service": "checkout",
+  "environment": "prod",
+  "severity": "high",
+  "time_range": {"from": "2025-01-01T10:00:00Z", "to": "2025-01-01T10:30:00Z"},
+  "description": "p99 > 2s",
+  "artifacts_hints": {"routes": ["/pay"]}
+}
+
+--> 201
+{
+  "id": "req_123",
+  "status": "running"
+}
+```
+
+```http
+GET /troubleshoot/req_123
+
+--> 200
+{
+  "id": "req_123",
+  "status": "running|done",
+  "plan": { },
+  "tasks": [ ],
+  "evidence": [ ],
+  "root_cause": null,
+  "remediation": null
+}
+```
+
+#### 25. Prompt 规范（v0）
+- 统一约束：所有 Agent 严格输出 JSON；失败时输出 `{ "error": {"type":..., "message":...} }`。
+- Planner 输出：
+```json
+{
+  "plan": {"goals": ["..."], "tasks": [{"task_id": "t1", "type": "log", "inputs": {}}]},
+  "next_actions": ["query_logs", "query_kpis"]
+}
+```
+- Log/Alarm/KPI 输出：
+```json
+{
+  "evidence": [
+    {"evidence_id": "e1", "source": "log", "summary": "...", "raw_ref": {"query": "...", "server": "logs"}}
+  ],
+  "findings": []
+}
+```
+- Summary 输出：
+```json
+{
+  "root_cause": {"hypothesis": "...", "confidence": 0.82},
+  "remediation": {"actions": ["..."], "validation_steps": ["..."]},
+  "report_md": "# Incident Summary\n..."
+}
+```
+提示词模板位置：`docs/prompts/*.md`（已创建）。
+
+#### 26. 最小运行示例（v0）
+```python
+from src.graph.builder import build_graph
+
+if __name__ == "__main__":
+    app = build_graph()
+    state = {
+        "request": {
+            "id": "req_demo",
+            "title": "p99 latency high",
+            "service": "checkout",
+            "environment": "prod"
+        }
+    }
+    result = app.invoke(state)
+    print(result.get("root_cause"))
+```
+
+#### 27. v0 实施清单
+- 初始化 SQLite（执行本节 DDL），实现 `src/services/repo.py` 读写。
+- 实现 LangGraph 节点：planner/route/log_agent/alarm_agent/kpi_agent/summarize。
+- 集成 MCP 客户端与工具桥接 `src/tools/mcp_bridge.py`。
+- 打通 REST API：POST/GET /troubleshoot，绑定图执行与入库。
+- 填充 `docs/prompts/*.md` 的具体模板，确保输出 JSON 符合第25节。
+- 增加 2-3 个合成用例数据，跑通端到端。
 
