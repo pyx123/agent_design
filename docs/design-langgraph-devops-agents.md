@@ -11,7 +11,7 @@
 
 #### 3. 范围与非目标
 - 范围：
-  - 计划生成、执行编排、并行/串行排查、证据收集、根因与建议生成、可追踪性与审计、成本/配额控制、最小化变更集成（只读为主，可选读写）。
+  - 计划生成、执行编排、并行/串行排查、证据收集、根因与建议生成、可追踪性、最小化变更集成（只读为主，可选读写）。
   - 数据源：日志、告警、指标（必选），可扩展 APM/Tracing、变更/发布系统、CMDB、知识库。
 - 非目标：
   - 自动执行破坏性操作（如直接回滚/扩容）默认禁用，仅输出建议与命令草案，人工确认后执行。
@@ -25,13 +25,10 @@
   - KPI Agent: 面向时序数据库（Prometheus/Thanos/Influx 等）进行指标趋势/异常检测/因果线索分析。
   - Summary Agent: 聚合执行结果，推演根因、影响面与修复建议，生成报告与工单草案。
 - **支撑能力**:
-  - 工具层：日志/指标/告警/变更/CMDB/知识库连接器与统一工具抽象。
-  - 存储：
-    - 会话/状态存储（Redis/SQLite/Postgres）
-    - 证据与中间结果（Postgres/Blob）
-    - 审计日志（Append-only，OLTP/OLAP 皆可）
-  - 观测与审计：OpenTelemetry Trace/Log/Metrics；结构化运行事件与工具调用审计。
-  - 安全：KMS/Secret 管理、RBAC、租户与数据域隔离、最小权限。
+  - 工具层（MCP）：主要由外部 MCP Server 提供的 MCP 工具，通过 MCP 客户端统一调用。
+  - 存储（SQLite 统一）：会话/状态、证据与中间结果、轻量索引均保存在 SQLite。
+  - 观测：OpenTelemetry Trace/Log/Metrics；结构化运行事件。
+  - 安全与合规（v2）：详见迭代2设计文档。
 
 #### 5. LangGraph 运行时与状态模型
 - **GraphState（单次排障的共享状态）**：
@@ -44,7 +41,7 @@
   - remediation: Remediation | null
   - next_actions: string[]  // Planner 的下一步建议/分派
   - history: Message[]      // 对话/Agent 交流上下文
-  - cost_usage: TokenCost   // token/时间/工具调用用量
+  - cost_usage: TokenCost（v2）  // v2: 记录 token/工具调用/时延等用量
   - errors: AgentError[]
   - done: boolean
 
@@ -58,8 +55,8 @@
     - summarize -> finalize
 
 - **并发与节流**：
-  - route 节点并行触发多个 Agent（受并发上限/配额控制），聚合结果后回到 planner。
-  - 对高成本工具调用设定速率限制与重试间隔。
+  - route 节点并行触发多个 Agent（受并发上限控制），聚合结果后回到 planner。
+  - 对高延迟或重负载的工具调用设定速率限制与重试间隔。
 
 #### 6. 数据契约（关键 Schema 摘要）
 - TroubleshootingRequest
@@ -88,7 +85,7 @@
   - 目标驱动（目标/约束/输出格式），引用计划、证据、历史上下文。
   - 严格输出结构化 JSON（使用 JSON Schema 标注，模型端加“只输出 JSON”提醒）。
 - Planner 提示：
-  - 输入：问题描述、上下文、当前证据/发现、历史任务与结果、成本与时间预算。
+  - 输入：问题描述、上下文、当前证据/发现、历史任务与结果、时间预算。
   - 输出：更新后的 InvestigationPlan 与下一步 `next_actions`。
 - Log/Alarm/KPI 提示：
   - 输入：任务参数（指标名/日志索引/服务/时间窗）+ 查询建议与样例。
@@ -97,31 +94,31 @@
   - 输入：完整计划与证据集合。
   - 输出：`root_cause` + `remediation` + 验证与回滚步骤 + 工单摘要。
 
-#### 8. 工具与连接器抽象
-- 接口定义（Python 伪代码）：
+#### 8. 工具层（MCP）抽象
+- 设计原则：由外部 MCP Server 暴露工具（tools/resources/prompts），系统通过 MCP 客户端统一发现与调用，避免为每个数据源单独写 SDK 适配层。
+- 映射关系：
+  - Log Agent -> MCP 工具示例：`log.search`, `log.tail`, `log.summary`
+  - Alarm Agent -> MCP 工具示例：`alert.list`, `alert.get`, `alert.summary`
+  - KPI Agent -> MCP 工具示例：`metric.query`, `metric.range_query`, `metric.baseline`
+- LangGraph 工具桥接（示例）：
 ```python
-class LogTool(Protocol):
-    def search(self, query: str, time_range: dict, filters: dict) -> list[dict]:
-        ...
+from typing import Any
+from langchain_core.tools import tool
+from mcp_client import McpClient  # 假设的 MCP 客户端
 
-class MetricTool(Protocol):
-    def query(self, promql: str, time_range: dict, step: str | None = None) -> dict:
-        ...
+mcp = McpClient()  # 通过配置建立到多个 MCP Server 的连接
 
-class AlertTool(Protocol):
-    def list(self, filters: dict, time_range: dict) -> list[dict]:
-        ...
-
-class ChangeTool(Protocol):
-    def recent(self, service: str, time_range: dict) -> list[dict]:
-        ...
+@tool
+def mcp_tool_invoker(server_id: str, tool_name: str, arguments_json: str) -> str:
+    """调用外部 MCP 工具。参数为 server_id、tool_name 与 JSON 字符串化的 arguments。返回工具执行结果的 JSON 字符串。"""
+    return mcp.call_tool(server_id=server_id, tool_name=tool_name, arguments_json=arguments_json)
 ```
 
-- 参考实现：Elastic/Loki/Prometheus/Alertmanager 的最小封装，注意：
-  - 查询超时与分页；
-  - 查询与原始响应入库引用（raw_ref）；
-  - 租户/命名空间隔离；
-  - 可观测性埋点（OTel span）。
+- 注意事项：
+  - 调用超时/重试/速率限制在本系统层实现；
+  - 工具返回需附带可复现信息（查询语句、时间窗、分页游标），作为证据引用；
+  - 不同租户/环境可绑定不同 MCP Server 与凭证；
+  - 仅保存摘要与引用，原始数据由外部系统托管。
 
 #### 9. LangGraph 实现蓝图（代码骨架）
 ```python
@@ -224,7 +221,7 @@ def build_graph():
 #### 10. 终止条件与迭代策略
 - 终止条件：
   - 找到高置信度根因；
-  - 达到成本/时间预算；
+  - 达到时间预算；
   - 用户主动终止；
   - 计划无进一步可执行任务。
 - 迭代：
@@ -235,23 +232,16 @@ def build_graph():
 - 工具调用：超时 + 重试 + 指数退避 + 熔断；
 - LLM 调用：超时 + 重试 + 限流 + 对齐（JSON 模式/约束解码）；
 - 降级：某数据源不可用时靠其余证据继续推进，并在报告中标注不确定性；
-- 审计：记录每次 Agent 进入、输出、工具调用与输入参数（脱敏）。
+- 运行事件记录：记录每次 Agent 进入、输出、工具调用与输入参数（必要脱敏）。
 
 #### 12. 安全与合规
-- RBAC：按租户/项目/环境限制可见服务与数据；
-- 凭证管理：从环境变量/Secret 管理器注入，避免持久化；
-- 数据最小化：避免长日志原文进入 LLM，上送前摘要/脱敏；
-- 审计与留痕：对外输出可附带证据引用而非原始敏感内容。
+- 本章节内容将随迭代2提供（安全与合规设计、RBAC、凭证管理、数据最小化、审计与留痕）。
 
 #### 13. 成本与性能
-- 成本模型：记录 token 与工具调用次数，按任务/租户汇总成本；
-- 预算控制：Planner 依据剩余预算约束任务规模与提示词长度；
-- 缓存：常见查询、指标基线、知识库段落结果缓存；
-- 并发：控制分支并发度；聚合等待时间加超时阈值；
-- 紧凑输出：所有 Agent 输出结构化、短摘要 + 引用。
+- 本章节内容将随迭代2提供（成本模型、预算控制、缓存与并发策略、输出压缩等）。
 
 #### 14. 观测与可视化
-- OpenTelemetry：为节点与工具建立 span，属性含 tenant、request_id、agent、tool、cost；
+- OpenTelemetry：为节点与工具建立 span，属性含 tenant、request_id、agent、tool；
 - 运行事件总线：记录进入/退出节点、条件分支选择、错误、重试；
 - 可视化：LangSmith 或自建可视化，展示计划、分支与证据链路。
 
@@ -269,20 +259,15 @@ def build_graph():
 - 线下评测：评估指标（根因命中率、时间、成本、可读性评分）。
 
 #### 17. 部署与运行
-- 容器化：多进程/多线程工作器 + API 服务；
-- 配置：`config/*.yaml` 指定数据源、限流、并发、预算、提示词插值变量；
-- 租户：按租户加载不同工具配置与 RBAC 策略；
-- 日志：结构化 JSON，分级输出（运行、审计、访问）。
+- 本章节内容将随迭代2提供（部署架构、配置管理、租户隔离与运行日志分级等）。
 
 #### 18. 里程碑规划
 - v0（原型）：单租户、最小工具集（Elastic/Prometheus/Alertmanager）、同步 API、基本可观测；
-- v1（生产）：异步任务、并行分支、RBAC、审计、限流配额、缓存、LangSmith 集成；
-- v2（扩展）：APM/Tracing、CMDB/变更、知识库、自适应提示词、自动化修复建议模板库。
+- v1（生产）：异步任务、并行分支、LangSmith 集成、基础缓存；
+- v2（扩展）：安全与合规、成本与性能、部署与运行、风险控制、RBAC、审计、APM/Tracing、CMDB/变更、知识库、自适应提示词、自动化修复建议模板库。
 
 #### 19. 风险与缓解
-- 数据质量与权限受限 -> 以证据引用为主，支持缺失数据下的推理并标注不确定性；
-- LLM 漂移与不稳定 -> 加强 few-shot、JSON schema 校验、回归集；
-- 成本失控 -> 严格预算、分支并发上限、缓存与局部重问策略。
+- 本章节内容将随迭代2提供（数据/权限/模型/成本等风险与控制方案）。
 
 #### 20. 参考目录结构（建议）
 ```
@@ -296,8 +281,8 @@ def build_graph():
 │  │  ├─ state.py           # GraphState 与 schema
 │  │  ├─ builder.py         # LangGraph 构建
 │  │  └─ nodes/             # planner/log/alarm/kpi/summary 节点实现
-│  ├─ tools/                # 数据源工具封装
-│  ├─ services/             # RBAC、审计、成本、缓存
+│  ├─ tools/                # MCP 工具桥接封装
+│  ├─ services/             # 缓存、重试/节流（v2: 安全/RBAC/审计/成本）
 │  └─ observability/        # OTel 集成
 └─ config/
    └─ default.yaml
