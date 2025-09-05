@@ -6,7 +6,7 @@ This MCP (Model Context Protocol) server is designed to record and store interac
 
 - **Interaction Recording**: Captures LLM interactions during task execution
 - **Tool Call Logging**: Records all tool calls and their results
-- **Database Storage**: PostgreSQL backend with SQLAlchemy ORM
+- **Database Storage**: SQLite backend with SQLAlchemy ORM (in-memory by default)
 - **MCP Integration**: Seamless integration with Cline via MCP protocol
 - **REST API**: Additional HTTP endpoints for data retrieval and management
 
@@ -21,8 +21,8 @@ The server consists of:
 ## Setup
 
 1. Install dependencies: `pip install -r requirements.txt`
-2. Configure database connection in `.env`
-3. Run database migrations: `alembic upgrade head`
+2. Configure database connection in `.env` (optional, defaults to in-memory SQLite)
+3. Initialize database tables: `python main.py --init-db`
 4. Start the MCP server: `python main.py`
 
 ## Usage
@@ -51,7 +51,7 @@ The server also provides HTTP endpoints for:
 ## Configuration
 
 Set the following environment variables:
-- `DATABASE_URL`: PostgreSQL connection string
+- `DATABASE_URL`: Database connection string (default: `sqlite:///:memory:`)
 - `MCP_PORT`: MCP server port (default: 8000)
 - `API_PORT`: REST API port (default: 8001)
 - `LOG_LEVEL`: Logging level (default: INFO)

@@ -33,7 +33,7 @@ def create_env_file():
         print("Creating .env file...")
         with open(env_file, "w") as f:
             f.write("""# Database Configuration
-DATABASE_URL=postgresql://cline_user:cline_password@localhost/cline_records
+DATABASE_URL=sqlite:///:memory:
 
 # Server Configuration
 MCP_PORT=8000
@@ -49,30 +49,33 @@ LOG_LEVEL=INFO
 
 def setup_sqlite_database():
     """Setup SQLite database for development/testing"""
-    print("Setting up SQLite database for development...")
+    print("Setting up SQLite database...")
     
-    # Update .env to use SQLite
+    # Update .env to use file-based SQLite (optional)
     env_file = Path(".env")
     if env_file.exists():
         with open(env_file, "r") as f:
             content = f.read()
         
-        # Replace PostgreSQL URL with SQLite
+        # Replace in-memory URL with file-based SQLite
         content = content.replace(
-            "DATABASE_URL=postgresql://cline_user:cline_password@localhost/cline_records",
+            "DATABASE_URL=sqlite:///:memory:",
             "DATABASE_URL=sqlite:///cline_records.db"
         )
         
         with open(env_file, "w") as f:
             f.write(content)
         
-        print("✓ Updated .env to use SQLite database")
+        print("✓ Updated .env to use file-based SQLite database")
     
-    # Create SQLite database
+    # Create SQLite database file (only if using file-based)
     try:
-        conn = sqlite3.connect("cline_records.db")
-        conn.close()
-        print("✓ SQLite database created")
+        if "cline_records.db" in content:
+            conn = sqlite3.connect("cline_records.db")
+            conn.close()
+            print("✓ SQLite database file created")
+        else:
+            print("✓ Using in-memory SQLite database (no file needed)")
     except Exception as e:
         print(f"Error creating SQLite database: {e}")
 
@@ -152,20 +155,21 @@ def main():
     
     # Database setup
     print("\nDatabase Setup:")
-    print("1. SQLite (recommended for development)")
-    print("2. PostgreSQL (recommended for production)")
+    print("1. SQLite in-memory (default, no persistence)")
+    print("2. SQLite file-based (persistent storage)")
+    print("3. PostgreSQL (advanced setup)")
     
-    choice = input("Choose database type (1 or 2): ").strip()
+    choice = input("Choose database type (1, 2, or 3): ").strip()
     
     if choice == "1":
-        setup_sqlite_database()
+        print("Using SQLite in-memory database (default)")
     elif choice == "2":
-        if not setup_postgres_database():
-            print("Falling back to SQLite...")
-            setup_sqlite_database()
-    else:
-        print("Invalid choice, using SQLite...")
         setup_sqlite_database()
+    elif choice == "3":
+        if not setup_postgres_database():
+            print("Falling back to SQLite in-memory...")
+    else:
+        print("Invalid choice, using SQLite in-memory...")
     
     # Initialize database
     initialize_database()

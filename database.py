@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/cline_records")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///:memory:")
 ENGINE = create_engine(DATABASE_URL)
 
 # Session factory

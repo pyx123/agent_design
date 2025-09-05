@@ -4,7 +4,7 @@
       "command": "python",
       "args": ["/path/to/your/workspace/main.py", "--mode", "mcp"],
       "env": {
-        "DATABASE_URL": "postgresql://cline_user:cline_password@localhost/cline_records",
+        "DATABASE_URL": "sqlite:///:memory:",
         "LOG_LEVEL": "INFO"
       }
     }

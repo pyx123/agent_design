@@ -21,20 +21,19 @@ pip install -r requirements.txt
 
 ### 2. Set Up Database
 
-Create a PostgreSQL database and set the connection string:
+The server uses SQLite in-memory mode by default, which requires no setup. The database is created automatically when the server starts.
+
+For persistent storage, you can use a file-based SQLite database:
 
 ```bash
-# Create database
-createdb cline_records
-
-# Set environment variable
-export DATABASE_URL="postgresql://username:password@localhost/cline_records"
+# Set environment variable for file-based SQLite
+export DATABASE_URL="sqlite:///cline_records.db"
 ```
 
 Or use Docker Compose:
 
 ```bash
-docker-compose up -d postgres
+docker-compose up -d
 ```
 
 ### 3. Initialize Database Tables
@@ -42,6 +41,8 @@ docker-compose up -d postgres
 ```bash
 python main.py --init-db
 ```
+
+Note: With SQLite in-memory mode, tables are created automatically when the server starts, but you can still run this command to verify the setup.
 
 ### 4. Start the MCP Server
 
@@ -60,7 +61,7 @@ Add the MCP server configuration to your Cline settings:
       "command": "python",
       "args": ["/path/to/your/workspace/main.py", "--mode", "mcp"],
       "env": {
-        "DATABASE_URL": "postgresql://username:password@localhost/cline_records"
+        "DATABASE_URL": "sqlite:///:memory:"
       }
     }
   }
@@ -312,8 +313,8 @@ GROUP BY tool_name;
 
 1. **Database Connection Failed**
    - Check DATABASE_URL environment variable
-   - Verify PostgreSQL is running
-   - Check database permissions
+   - For file-based SQLite, ensure the directory is writable
+   - For in-memory SQLite, no additional setup is required
 
 2. **MCP Server Not Responding**
    - Verify server is running on correct port
