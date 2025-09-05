@@ -1,0 +1,44 @@
+{
+  "mcpServers": {
+    "cline-recorder": {
+      "command": "python",
+      "args": ["/path/to/your/workspace/main.py", "--mode", "mcp"],
+      "env": {
+        "DATABASE_URL": "postgresql://cline_user:cline_password@localhost/cline_records",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "start_task_execution",
+      "description": "Start recording a new task execution session",
+      "mcpServer": "cline-recorder"
+    },
+    {
+      "name": "record_interaction",
+      "description": "Record an LLM interaction (prompt + response)",
+      "mcpServer": "cline-recorder"
+    },
+    {
+      "name": "record_tool_call",
+      "description": "Record a tool call execution",
+      "mcpServer": "cline-recorder"
+    },
+    {
+      "name": "record_performance_metric",
+      "description": "Record a performance metric for task execution",
+      "mcpServer": "cline-recorder"
+    },
+    {
+      "name": "complete_task_execution",
+      "description": "Mark a task execution as completed",
+      "mcpServer": "cline-recorder"
+    },
+    {
+      "name": "get_task_summary",
+      "description": "Get a summary of a task execution",
+      "mcpServer": "cline-recorder"
+    }
+  ]
+}
